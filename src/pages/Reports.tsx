@@ -1,5 +1,9 @@
-```tsx
-import React, { useEffect, useState, useCallback } from 'react';
+import React, {
+  useEffect,
+  useState,
+  useCallback,
+} from 'react';
+
 import {
   Download,
   BarChart2,
@@ -23,6 +27,7 @@ import {
 } from 'recharts';
 
 import StatCard from '../components/StatCard';
+
 import {
   getDashboardStats,
   getVendors,
@@ -35,7 +40,10 @@ import type {
 } from '../api/client';
 
 const fmt = (n: number) =>
-  '₹' + new Intl.NumberFormat('en-IN').format(Math.round(n));
+  '₹' +
+  new Intl.NumberFormat('en-IN').format(
+    Math.round(n)
+  );
 
 const COLORS = [
   '#10b981',
@@ -45,9 +53,14 @@ const COLORS = [
 ];
 
 const Reports: React.FC = () => {
-  const [stats, setStats] = useState<DashboardStats | null>(null);
-  const [vendors, setVendors] = useState<Vendor[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const [stats, setStats] =
+    useState<DashboardStats | null>(null);
+
+  const [vendors, setVendors] =
+    useState<Vendor[]>([]);
+
+  const [isLoading, setIsLoading] =
+    useState(true);
 
   const load = useCallback(async () => {
     setIsLoading(true);
@@ -102,6 +115,7 @@ const Reports: React.FC = () => {
 
       {/* Header */}
       <div className="flex items-center justify-between">
+
         <div>
           <h1 className="text-xl font-bold text-white">
             Reports
@@ -119,6 +133,7 @@ const Reports: React.FC = () => {
           <Download size={16} />
           Export All Invoices CSV
         </button>
+
       </div>
 
       {/* Stats */}
@@ -151,7 +166,9 @@ const Reports: React.FC = () => {
           value={
             isLoading
               ? '₹—'
-              : fmt(stats?.total_amount_audited ?? 0)
+              : fmt(
+                  stats?.total_amount_audited ?? 0
+                )
           }
           icon={<TrendingUp size={18} />}
           accent="violet"
@@ -174,10 +191,11 @@ const Reports: React.FC = () => {
       {/* Charts */}
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
 
-        {/* Audit Status Distribution */}
+        {/* Status donut */}
         <div className="glass-card p-5">
 
           <div className="flex items-center gap-2 mb-4">
+
             <BarChart2
               size={15}
               className="text-violet-400"
@@ -186,6 +204,7 @@ const Reports: React.FC = () => {
             <h2 className="text-sm font-semibold text-white">
               Audit Status Distribution
             </h2>
+
           </div>
 
           <ResponsiveContainer
@@ -226,7 +245,6 @@ const Reports: React.FC = () => {
                 )}
               />
 
-              {/* Built-in Recharts Tooltip */}
               <Tooltip />
 
             </PieChart>
@@ -239,10 +257,12 @@ const Reports: React.FC = () => {
                 key={data.name}
                 className="flex items-center gap-2 text-xs"
               >
+
                 <div
                   className="w-2 h-2 rounded-full"
                   style={{
-                    backgroundColor: COLORS[index],
+                    backgroundColor:
+                      COLORS[index],
                   }}
                 />
 
@@ -253,16 +273,18 @@ const Reports: React.FC = () => {
                 <span className="text-white font-medium">
                   {data.value}
                 </span>
+
               </div>
             ))}
 
           </div>
         </div>
 
-        {/* Vendor Risk */}
+        {/* Vendor risk bar */}
         <div className="glass-card p-5">
 
           <div className="flex items-center gap-2 mb-4">
+
             <Users
               size={15}
               className="text-violet-400"
@@ -271,6 +293,7 @@ const Reports: React.FC = () => {
             <h2 className="text-sm font-semibold text-white">
               Top Vendor Risk Scores
             </h2>
+
           </div>
 
           <ResponsiveContainer
@@ -309,7 +332,6 @@ const Reports: React.FC = () => {
                 width={90}
               />
 
-              {/* Built-in Recharts Tooltip */}
               <Tooltip />
 
               <Bar
@@ -317,29 +339,30 @@ const Reports: React.FC = () => {
                 name="Risk Score"
                 radius={[0, 4, 4, 0]}
               >
-                {riskData.map((entry, index) => (
-                  <Cell
-                    key={`${entry.name}-${index}`}
-                    fill={
-                      entry.risk <= 30
-                        ? '#10b981'
-                        : entry.risk <= 70
-                        ? '#f59e0b'
-                        : '#ef4444'
-                    }
-                    fillOpacity={0.8}
-                  />
-                ))}
+                {riskData.map(
+                  (entry, index) => (
+                    <Cell
+                      key={`${entry.name}-${index}`}
+                      fill={
+                        entry.risk <= 30
+                          ? '#10b981'
+                          : entry.risk <= 70
+                          ? '#f59e0b'
+                          : '#ef4444'
+                      }
+                      fillOpacity={0.8}
+                    />
+                  )
+                )}
               </Bar>
 
             </BarChart>
           </ResponsiveContainer>
 
         </div>
-
       </div>
 
-      {/* Audit Summary */}
+      {/* Summary */}
       <div className="glass-card p-5">
 
         <h2 className="text-sm font-semibold text-white mb-4">
@@ -360,6 +383,7 @@ const Reports: React.FC = () => {
                 : '—',
               color: '#10b981',
             },
+
             {
               label: 'Flag Rate',
               value: stats
@@ -371,6 +395,7 @@ const Reports: React.FC = () => {
                 : '—',
               color: '#ef4444',
             },
+
             {
               label: 'Review Rate',
               value: stats
@@ -387,6 +412,7 @@ const Reports: React.FC = () => {
               key={summary.label}
               className="text-center p-4 rounded-xl bg-white/[0.02] border border-white/[0.06]"
             >
+
               <p
                 className="text-2xl font-bold"
                 style={{
@@ -399,6 +425,7 @@ const Reports: React.FC = () => {
               <p className="text-xs text-slate-500 mt-1">
                 {summary.label}
               </p>
+
             </div>
           ))}
 
@@ -410,4 +437,3 @@ const Reports: React.FC = () => {
 };
 
 export default Reports;
-```
