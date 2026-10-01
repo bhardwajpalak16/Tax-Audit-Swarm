@@ -15,7 +15,6 @@ import {
   XAxis,
   YAxis,
   Tooltip,
-  TooltipContentProps,
   ResponsiveContainer,
   PieChart,
   Pie,
@@ -26,13 +25,22 @@ import StatCard from '../components/StatCard';
 import StatusBadge from '../components/StatusBadge';
 import DataTable from '../components/DataTable';
 import type { Column } from '../components/DataTable';
-import { getDashboardStats, getInvoices, getVendors } from '../api/client';
+import {
+  getDashboardStats,
+  getInvoices,
+  getVendors,
+} from '../api/client';
 import type { Invoice, DashboardStats } from '../api/client';
 
 const fmt = (n: number) =>
   '₹' + new Intl.NumberFormat('en-IN').format(Math.round(n));
 
-const DONUT_COLORS = ['#10b981', '#ef4444', '#f59e0b', '#8b5cf6'];
+const DONUT_COLORS = [
+  '#10b981',
+  '#ef4444',
+  '#f59e0b',
+  '#8b5cf6',
+];
 
 const Dashboard: React.FC = () => {
   const navigate = useNavigate();
@@ -59,7 +67,7 @@ const Dashboard: React.FC = () => {
       setVendorCount(vnd.vendors.length);
       setFlagged(fl.invoices);
     } catch {
-      // handle silently — empty state shown
+      // Empty state will be shown
     } finally {
       setIsLoading(false);
     }
@@ -69,11 +77,14 @@ const Dashboard: React.FC = () => {
     load();
   }, [load]);
 
-  // Build audit volume trend from invoices (last 7 days)
   const trendData = React.useMemo(() => {
     const days: Record<
       string,
-      { date: string; total: number; pending: number }
+      {
+        date: string;
+        total: number;
+        pending: number;
+      }
     > = {};
 
     const now = new Date();
@@ -108,10 +119,22 @@ const Dashboard: React.FC = () => {
 
   const donutData = stats
     ? [
-        { name: 'Approved', value: stats.approved },
-        { name: 'Flagged', value: stats.flagged },
-        { name: 'Manual Review', value: stats.manual_review },
-        { name: 'Pending', value: stats.pending },
+        {
+          name: 'Approved',
+          value: stats.approved,
+        },
+        {
+          name: 'Flagged',
+          value: stats.flagged,
+        },
+        {
+          name: 'Manual Review',
+          value: stats.manual_review,
+        },
+        {
+          name: 'Pending',
+          value: stats.pending,
+        },
       ]
     : [];
 
@@ -155,10 +178,13 @@ const Dashboard: React.FC = () => {
       header: 'Created',
       render: (row) => (
         <span className="text-slate-500 text-xs">
-          {new Date(row.created_at).toLocaleDateString('en-IN', {
-            day: '2-digit',
-            month: 'short',
-          })}
+          {new Date(row.created_at).toLocaleDateString(
+            'en-IN',
+            {
+              day: '2-digit',
+              month: 'short',
+            }
+          )}
         </span>
       ),
     },
@@ -179,38 +205,9 @@ const Dashboard: React.FC = () => {
     },
   ];
 
-  // Fixed Recharts tooltip typing
-  const customTooltip = ({
-    active,
-    payload,
-    label,
-  }: TooltipContentProps<number, string>) => {
-    if (active && payload && payload.length > 0) {
-      return (
-        <div className="glass-card p-3 text-xs">
-          <p className="text-slate-400 mb-1">
-            {String(label ?? '')}
-          </p>
-
-          {payload.map((p) => (
-            <p
-              key={String(p.name ?? '')}
-              style={{
-                color: p.color,
-              }}
-            >
-              {String(p.name ?? '')}: {String(p.value ?? '')}
-            </p>
-          ))}
-        </div>
-      );
-    }
-
-    return null;
-  };
-
   return (
     <div className="space-y-6 animate-fade-in">
+
       {/* Hero */}
       <div
         className="glass-card p-6 relative overflow-hidden"
@@ -247,6 +244,7 @@ const Dashboard: React.FC = () => {
 
       {/* Stat cards */}
       <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
+
         <StatCard
           title="Total Vendors"
           value={isLoading ? '—' : vendorCount}
@@ -257,7 +255,11 @@ const Dashboard: React.FC = () => {
 
         <StatCard
           title="Invoices Audited"
-          value={isLoading ? '—' : stats?.total_invoices ?? 0}
+          value={
+            isLoading
+              ? '—'
+              : stats?.total_invoices ?? 0
+          }
           icon={<FileText size={18} />}
           accent="emerald"
           subtitle="All time"
@@ -287,12 +289,15 @@ const Dashboard: React.FC = () => {
           accent="amber"
           subtitle="Pending + Manual Review"
         />
+
       </div>
 
-      {/* Charts row */}
+      {/* Charts */}
       <div className="grid grid-cols-1 xl:grid-cols-5 gap-4">
+
         {/* Line chart */}
         <div className="glass-card p-5 xl:col-span-3">
+
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-sm font-semibold text-white">
               Audit Volume Trend
@@ -305,6 +310,7 @@ const Dashboard: React.FC = () => {
 
           <ResponsiveContainer width="100%" height={180}>
             <LineChart data={trendData}>
+
               <XAxis
                 dataKey="date"
                 tick={{
@@ -325,7 +331,7 @@ const Dashboard: React.FC = () => {
                 allowDecimals={false}
               />
 
-              <Tooltip content={customTooltip} />
+              <Tooltip />
 
               <Line
                 type="monotone"
@@ -345,19 +351,25 @@ const Dashboard: React.FC = () => {
                 strokeDasharray="4 2"
                 name="Pending"
               />
+
             </LineChart>
           </ResponsiveContainer>
         </div>
 
         {/* Donut */}
         <div className="glass-card p-5 xl:col-span-2">
+
           <h3 className="text-sm font-semibold text-white mb-4">
             Status Breakdown
           </h3>
 
           {donutData.length > 0 ? (
-            <ResponsiveContainer width="100%" height={180}>
+            <ResponsiveContainer
+              width="100%"
+              height={180}
+            >
               <PieChart>
+
                 <Pie
                   data={donutData}
                   cx="50%"
@@ -367,10 +379,10 @@ const Dashboard: React.FC = () => {
                   paddingAngle={3}
                   dataKey="value"
                 >
-                  {donutData.map((_, i) => (
+                  {donutData.map((entry, index) => (
                     <Cell
-                      key={i}
-                      fill={DONUT_COLORS[i]}
+                      key={`${entry.name}-${index}`}
+                      fill={DONUT_COLORS[index]}
                     />
                   ))}
                 </Pie>
@@ -390,7 +402,8 @@ const Dashboard: React.FC = () => {
                   )}
                 />
 
-                <Tooltip content={customTooltip} />
+                <Tooltip />
+
               </PieChart>
             </ResponsiveContainer>
           ) : (
@@ -398,13 +411,16 @@ const Dashboard: React.FC = () => {
               No data yet
             </div>
           )}
+
         </div>
       </div>
 
       {/* Recent flags + table */}
       <div className="grid grid-cols-1 xl:grid-cols-4 gap-4">
+
         {/* Recent Flags */}
         <div className="glass-card p-5 xl:col-span-1">
+
           <div className="flex items-center gap-2 mb-4">
             <AlertTriangle
               size={14}
@@ -417,6 +433,7 @@ const Dashboard: React.FC = () => {
           </div>
 
           <div className="space-y-3">
+
             {flagged.length === 0 ? (
               <p className="text-slate-600 text-xs">
                 No flagged invoices
@@ -437,7 +454,8 @@ const Dashboard: React.FC = () => {
                   </p>
 
                   <p className="text-xs text-slate-400 mt-0.5 truncate">
-                    {inv.vendor_name || inv.vendor_gstin}
+                    {inv.vendor_name ||
+                      inv.vendor_gstin}
                   </p>
 
                   <p className="text-xs text-slate-500 mt-0.5">
@@ -446,17 +464,21 @@ const Dashboard: React.FC = () => {
                 </div>
               ))
             )}
+
           </div>
         </div>
 
-        {/* Recent invoices table */}
+        {/* Recent invoices */}
         <div className="glass-card xl:col-span-3">
+
           <div className="flex items-center justify-between px-5 pt-4 pb-3 border-b border-white/[0.06]">
+
             <h3 className="text-sm font-semibold text-white">
               Recent Invoices
             </h3>
 
             <div className="flex items-center gap-2">
+
               <button
                 onClick={load}
                 className="btn-ghost p-1.5"
@@ -466,10 +488,13 @@ const Dashboard: React.FC = () => {
 
               <button
                 className="text-xs text-violet-400 hover:text-violet-300 transition-colors"
-                onClick={() => navigate('/invoices')}
+                onClick={() =>
+                  navigate('/invoices')
+                }
               >
                 View all →
               </button>
+
             </div>
           </div>
 
@@ -478,11 +503,14 @@ const Dashboard: React.FC = () => {
             data={invoices}
             isLoading={isLoading}
             emptyMessage="No invoices yet — upload one to get started."
-            keyExtractor={(r) => r.invoice_id}
+            keyExtractor={(row) => row.invoice_id}
             onRowClick={(row) =>
-              navigate(`/invoices/${row.invoice_id}`)
+              navigate(
+                `/invoices/${row.invoice_id}`
+              )
             }
           />
+
         </div>
       </div>
     </div>
