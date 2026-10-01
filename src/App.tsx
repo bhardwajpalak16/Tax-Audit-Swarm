@@ -73,6 +73,7 @@ const AppShell: React.FC = () => {
             <Route path="/vendors" element={<Vendors />} />
             <Route path="/vendors/:gstin" element={<VendorDetail />} />
             <Route path="/invoices" element={<Invoices />} />
+            <Route path="/invoices/:id/*" element={<InvoiceDetail />} />
             <Route path="/invoices/:id" element={<InvoiceDetail />} />
             <Route path="/audit" element={<Audit />} />
             <Route path="/audit-log" element={<AuditLog />} />

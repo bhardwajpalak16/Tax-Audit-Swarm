@@ -18,7 +18,8 @@ const agentColors: Record<string, string> = {
 };
 
 const InvoiceDetail: React.FC = () => {
-  const { id } = useParams<{ id: string }>();
+  const params = useParams<{ id?: string; '*': string }>();
+  const id = params['*'] ? `${params.id}/${params['*']}` : params.id;
   const navigate = useNavigate();
   const { toasts, addToast, removeToast } = useToast();
   const [invoice, setInvoice] = useState<Invoice | null>(null);

@@ -13,11 +13,17 @@ export default defineConfig({
         target: 'http://localhost:8000',
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/api/, ''),
+        configure: (proxy) => {
+          proxy.on('error', () => {});
+        },
       },
       // WebSocket proxy for live audit logs
       '/ws': {
         target: 'ws://localhost:8000',
         ws: true,
+        configure: (proxy) => {
+          proxy.on('error', () => {});
+        },
       },
     },
   },

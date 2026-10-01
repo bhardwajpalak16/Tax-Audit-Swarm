@@ -7,6 +7,7 @@ import io
 import csv
 import uuid
 import json
+import re
 from datetime import datetime, date
 from typing import Optional, List
 
@@ -15,6 +16,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, FileResponse
 from pydantic import BaseModel, Field
 import google.generativeai as genai
+
+def _sanitize_filename(name: str) -> str:
+    """Sanitizes an invoice ID into a safe filename by replacing slashes and special chars."""
+    return re.sub(r'[^a-zA-Z0-9_\-\.]', '_', name)
 
 from schemas import AuditResponse, ExtractedInvoice
 from database import get_db_connection, log_ai_action
@@ -188,6 +193,83 @@ def _build_extracted_invoice_from_db(invoice_id: str) -> ExtractedInvoice:
             conn.close()
 
 
+def _save_or_update_audited_invoice(extracted_data: ExtractedInvoice, invoice_id: str, status: str):
+    """
+    Saves or updates the audited invoice in purchase_ledgers and ensures
+    the vendor exists in the vendors table so foreign key constraints hold.
+    """
+    conn = None
+    cursor = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+
+        raw_gstin = (extracted_data.vendor_gstin or "").strip().upper()
+        vendor_gstin = raw_gstin if len(raw_gstin) == 15 else "99UNKNOWN000000"
+        vendor_name = (extracted_data.vendor_name or "Unknown Vendor").strip()
+        state_code = vendor_gstin[:2] if len(vendor_gstin) >= 2 else "99"
+        risk_score = 75 if status == "FLAGGED" else (50 if status == "MANUAL_REVIEW" else 10)
+
+        cursor.execute(
+            """
+            INSERT INTO vendors (vendor_gstin, vendor_name, state_code, risk_score)
+            VALUES (%s, %s, %s, %s)
+            ON CONFLICT (vendor_gstin) DO UPDATE SET
+                vendor_name = COALESCE(NULLIF(EXCLUDED.vendor_name, 'Unknown Vendor'), vendors.vendor_name);
+            """,
+            (vendor_gstin, vendor_name, state_code, risk_score)
+        )
+
+        cursor.execute(
+            """
+            INSERT INTO purchase_ledgers (invoice_id, vendor_gstin, base_amount, tax_amount, total_amount, status)
+            VALUES (%s, %s, %s, %s, %s, %s)
+            ON CONFLICT (invoice_id) DO UPDATE SET
+                status = EXCLUDED.status,
+                base_amount = EXCLUDED.base_amount,
+                tax_amount = EXCLUDED.tax_amount,
+                total_amount = EXCLUDED.total_amount;
+            """,
+            (
+                invoice_id,
+                vendor_gstin,
+                extracted_data.base_amount,
+                extracted_data.tax_amount,
+                extracted_data.total_amount,
+                status
+            )
+        )
+        conn.commit()
+    except Exception as e:
+        if conn:
+            conn.rollback()
+        print(f"[AUDIT DB ERROR] Failed to save/update audited invoice: {e}")
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
+
+
+def _update_invoice_status(invoice_id: str, status: str):
+    conn = None
+    cursor = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("UPDATE purchase_ledgers SET status = %s WHERE invoice_id = %s;", (status, invoice_id))
+        conn.commit()
+    except Exception as e:
+        if conn:
+            conn.rollback()
+        print(f"[RE-AUDIT DB ERROR] Failed to update status: {e}")
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
+
+
 # =========================================
 # 1. POST /audit-invoice
 # =========================================
@@ -212,46 +294,41 @@ async def audit_invoice(file: UploadFile = File(...)):
         # Persist the raw uploaded file to disk, named by invoice_id, so
         # GET /invoices/{invoice_id}/file can serve it later.
         file_ext = os.path.splitext(file.filename or "")[1] or ".bin"
-        saved_path = os.path.join(UPLOAD_DIR, f"{invoice_id}{file_ext}")
+        safe_fname = _sanitize_filename(invoice_id)
+        saved_path = os.path.join(UPLOAD_DIR, f"{safe_fname}{file_ext}")
+        os.makedirs(os.path.dirname(saved_path), exist_ok=True)
         with open(saved_path, "wb") as f:
             f.write(file_bytes)
 
         await manager.broadcast({"invoice_id": invoice_id, "agent": "Agent1_Vision", "status": "EXTRACTED"})
 
+        final_status = "APPROVED"
+        final_reason = "All Swarm checks passed successfully"
+
         if extracted_data.confidence_score < _ai_config_store.confidence_threshold:
-            await manager.broadcast({"invoice_id": invoice_id, "agent": "Pipeline", "status": "MANUAL_REVIEW"})
-            return AuditResponse(
-                status="MANUAL_REVIEW",
-                reason=f"Low extraction confidence ({extracted_data.confidence_score}).",
-                extracted_data=extracted_data
-            )
+            final_status = "MANUAL_REVIEW"
+            final_reason = f"Low extraction confidence ({extracted_data.confidence_score})."
+        else:
+            ledger_result = await verify_ledger_data(extracted_data, invoice_id)
+            await manager.broadcast({"invoice_id": invoice_id, "agent": "Agent2_Ledger", "status": ledger_result["is_valid"]})
 
-        ledger_result = await verify_ledger_data(extracted_data, invoice_id)
-        await manager.broadcast({"invoice_id": invoice_id, "agent": "Agent2_Ledger", "status": ledger_result["is_valid"]})
+            if not ledger_result["is_valid"]:
+                final_status = "FLAGGED"
+                final_reason = ledger_result["error_message"]
+            else:
+                tax_result = await check_tax_compliance(extracted_data, invoice_id)
+                await manager.broadcast({"invoice_id": invoice_id, "agent": "Agent3_Tax", "status": tax_result["is_compliant"]})
 
-        if not ledger_result["is_valid"]:
-            await manager.broadcast({"invoice_id": invoice_id, "agent": "Pipeline", "status": "FLAGGED"})
-            return AuditResponse(
-                status="FLAGGED",
-                reason=ledger_result["error_message"],
-                extracted_data=extracted_data
-            )
+                if not tax_result["is_compliant"]:
+                    final_status = "FLAGGED"
+                    final_reason = tax_result["rule_cited"]
 
-        tax_result = await check_tax_compliance(extracted_data, invoice_id)
-        await manager.broadcast({"invoice_id": invoice_id, "agent": "Agent3_Tax", "status": tax_result["is_compliant"]})
+        await manager.broadcast({"invoice_id": invoice_id, "agent": "Pipeline", "status": final_status})
+        _save_or_update_audited_invoice(extracted_data, invoice_id, final_status)
 
-        if not tax_result["is_compliant"]:
-            await manager.broadcast({"invoice_id": invoice_id, "agent": "Pipeline", "status": "FLAGGED"})
-            return AuditResponse(
-                status="FLAGGED",
-                reason=tax_result["rule_cited"],
-                extracted_data=extracted_data
-            )
-
-        await manager.broadcast({"invoice_id": invoice_id, "agent": "Pipeline", "status": "APPROVED"})
         return AuditResponse(
-            status="APPROVED",
-            reason="All Swarm checks passed successfully",
+            status=final_status,
+            reason=final_reason,
             extracted_data=extracted_data
         )
 
@@ -265,7 +342,7 @@ async def audit_invoice(file: UploadFile = File(...)):
 # 2. POST /invoices/{invoice_id}/re-audit
 # =========================================
 
-@app.post("/invoices/{invoice_id}/re-audit", response_model=AuditResponse)
+@app.post("/invoices/{invoice_id:path}/re-audit", response_model=AuditResponse)
 async def re_audit_invoice(invoice_id: str):
     """
     Re-runs Agent 2 (Ledger) and Agent 3 (Tax) using data already stored in
@@ -277,12 +354,15 @@ async def re_audit_invoice(invoice_id: str):
 
         ledger_result = await verify_ledger_data(extracted_data, invoice_id)
         if not ledger_result["is_valid"]:
-             return AuditResponse(status="FLAGGED", reason=ledger_result["error_message"], extracted_data=extracted_data)
+            _update_invoice_status(invoice_id, "FLAGGED")
+            return AuditResponse(status="FLAGGED", reason=ledger_result["error_message"], extracted_data=extracted_data)
 
         tax_result = await check_tax_compliance(extracted_data, invoice_id)
         if not tax_result["is_compliant"]:
+            _update_invoice_status(invoice_id, "FLAGGED")
             return AuditResponse(status="FLAGGED", reason=tax_result["rule_cited"], extracted_data=extracted_data)
 
+        _update_invoice_status(invoice_id, "APPROVED")
         return AuditResponse(status="APPROVED", reason="Re-audit passed all checks", extracted_data=extracted_data)
 
     except HTTPException:
@@ -295,7 +375,7 @@ async def re_audit_invoice(invoice_id: str):
 # 3. PATCH /invoices/{invoice_id}/override
 # =========================================
 
-@app.patch("/invoices/{invoice_id}/override")
+@app.patch("/invoices/{invoice_id:path}/override")
 def override_invoice_status(invoice_id: str, payload: OverridePayload):
     valid_statuses = {"APPROVED", "FLAGGED", "MANUAL_REVIEW", "PENDING"}
     if payload.status not in valid_statuses:
@@ -513,7 +593,47 @@ def search_invoices(
             conn.close()
 
 
-@app.get("/invoices/{invoice_id}")
+@app.get("/invoices/{invoice_id:path}/file")
+def get_invoice_file(invoice_id: str):
+    """
+    Serves the original uploaded invoice file from local disk.
+    Files were saved during /audit-invoice as uploads/{safe_invoice_id}{ext}.
+    """
+    safe_id = _sanitize_filename(invoice_id)
+    for filename in os.listdir(UPLOAD_DIR):
+        if filename.startswith(safe_id) or filename.startswith(invoice_id):
+            return FileResponse(os.path.join(UPLOAD_DIR, filename))
+    raise HTTPException(status_code=404, detail=f"No file found for invoice {invoice_id}.")
+
+
+@app.get("/invoices/{invoice_id:path}/audit-trail")
+def get_audit_trail(invoice_id: str):
+    conn = None
+    cursor = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT agent_name, action_taken, reason, created_at
+            FROM ai_audit_logs
+            WHERE invoice_id = %s
+            ORDER BY created_at ASC;
+            """,
+            (invoice_id,)
+        )
+        rows = cursor.fetchall()
+        return {"invoice_id": invoice_id, "trail": rows}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
+
+
+@app.get("/invoices/{invoice_id:path}")
 def get_invoice(invoice_id: str):
     conn = None
     cursor = None
@@ -544,49 +664,7 @@ def get_invoice(invoice_id: str):
             conn.close()
 
 
-@app.get("/invoices/{invoice_id}/file")
-def get_invoice_file(invoice_id: str):
-    """
-    Serves the original uploaded invoice file from local disk.
-    Files were saved during /audit-invoice as uploads/{invoice_id}{ext}.
-    NOTE: local disk storage is fine for the hackathon demo; for real
-    deployment this should move to S3/Cloudinary since local disk won't
-    persist across container restarts on most hosting platforms.
-    """
-    for filename in os.listdir(UPLOAD_DIR):
-        if filename.startswith(invoice_id):
-            return FileResponse(os.path.join(UPLOAD_DIR, filename))
-    raise HTTPException(status_code=404, detail=f"No file found for invoice {invoice_id}.")
-
-
-@app.get("/invoices/{invoice_id}/audit-trail")
-def get_audit_trail(invoice_id: str):
-    conn = None
-    cursor = None
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        cursor.execute(
-            """
-            SELECT agent_name, action_taken, reason, created_at
-            FROM ai_audit_logs
-            WHERE invoice_id = %s
-            ORDER BY created_at ASC;
-            """,
-            (invoice_id,)
-        )
-        rows = cursor.fetchall()
-        return {"invoice_id": invoice_id, "trail": rows}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        if cursor:
-            cursor.close()
-        if conn:
-            conn.close()
-
-
-@app.delete("/invoices/{invoice_id}")
+@app.delete("/invoices/{invoice_id:path}")
 def delete_invoice(invoice_id: str):
     conn = None
     cursor = None
@@ -894,7 +972,7 @@ def get_dashboard_stats():
             conn.close()
 
 
-@app.get("/invoices/{invoice_id}/export")
+@app.get("/invoices/{invoice_id:path}/export")
 def export_invoice(invoice_id: str):
     conn = None
     cursor = None
@@ -920,10 +998,11 @@ def export_invoice(invoice_id: str):
         writer.writerow(row)
         output.seek(0)
 
+        safe_csv_name = _sanitize_filename(invoice_id)
         return StreamingResponse(
             iter([output.getvalue()]),
             media_type="text/csv",
-            headers={"Content-Disposition": f"attachment; filename={invoice_id}.csv"}
+            headers={"Content-Disposition": f"attachment; filename={safe_csv_name}.csv"}
         )
     except HTTPException:
         raise
