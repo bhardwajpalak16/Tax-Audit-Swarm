@@ -40,7 +40,7 @@ const Reports: React.FC = () => {
     .slice(0, 10)
     .map(v => ({ name: v.vendor_name.slice(0, 14), risk: v.risk_score }));
 
-  const customTooltip = ({ active, payload, label }: { active?: boolean; payload?: Array<{ color: string; name: string; value: number }>; label?: string }) => {
+  const customTooltip = ({ active, payload, label }: any) => {
     if (active && payload?.length) {
       return (
         <div className="glass-card p-3 text-xs">
