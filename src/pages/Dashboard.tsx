@@ -9,6 +9,7 @@ import {
   RefreshCw,
   Eye,
 } from 'lucide-react';
+
 import {
   LineChart,
   Line,
@@ -21,16 +22,22 @@ import {
   Cell,
   Legend,
 } from 'recharts';
+
 import StatCard from '../components/StatCard';
 import StatusBadge from '../components/StatusBadge';
 import DataTable from '../components/DataTable';
 import type { Column } from '../components/DataTable';
+
 import {
   getDashboardStats,
   getInvoices,
   getVendors,
 } from '../api/client';
-import type { Invoice, DashboardStats } from '../api/client';
+
+import type {
+  Invoice,
+  DashboardStats,
+} from '../api/client';
 
 const fmt = (n: number) =>
   '₹' + new Intl.NumberFormat('en-IN').format(Math.round(n));
@@ -45,11 +52,20 @@ const DONUT_COLORS = [
 const Dashboard: React.FC = () => {
   const navigate = useNavigate();
 
-  const [stats, setStats] = useState<DashboardStats | null>(null);
-  const [invoices, setInvoices] = useState<Invoice[]>([]);
-  const [flagged, setFlagged] = useState<Invoice[]>([]);
-  const [vendorCount, setVendorCount] = useState(0);
-  const [isLoading, setIsLoading] = useState(true);
+  const [stats, setStats] =
+    useState<DashboardStats | null>(null);
+
+  const [invoices, setInvoices] =
+    useState<Invoice[]>([]);
+
+  const [flagged, setFlagged] =
+    useState<Invoice[]>([]);
+
+  const [vendorCount, setVendorCount] =
+    useState(0);
+
+  const [isLoading, setIsLoading] =
+    useState(true);
 
   const load = useCallback(async () => {
     setIsLoading(true);
@@ -59,7 +75,10 @@ const Dashboard: React.FC = () => {
         getDashboardStats(),
         getInvoices({ limit: 10 }),
         getVendors(),
-        getInvoices({ status: 'FLAGGED', limit: 3 }),
+        getInvoices({
+          status: 'FLAGGED',
+          limit: 3,
+        }),
       ]);
 
       setStats(s);
@@ -67,7 +86,7 @@ const Dashboard: React.FC = () => {
       setVendorCount(vnd.vendors.length);
       setFlagged(fl.invoices);
     } catch {
-      // Empty state will be shown
+      // Keep dashboard in empty state if API fails
     } finally {
       setIsLoading(false);
     }
@@ -76,6 +95,39 @@ const Dashboard: React.FC = () => {
   useEffect(() => {
     load();
   }, [load]);
+
+  /*
+   * FIX:
+   * Recharts Tooltip expects its own TooltipContentProps.
+   * Using `any` here avoids the readonly TooltipPayload
+   * TypeScript incompatibility during Vercel build.
+   */
+  const customTooltip = ({
+    active,
+    payload,
+    label,
+  }: any) => {
+    if (active && payload?.length) {
+      return (
+        <div className="glass-card p-3 text-xs">
+          <p className="text-slate-400 mb-1">
+            {label}
+          </p>
+
+          {payload.map((p: any) => (
+            <p
+              key={p.name}
+              style={{ color: p.color }}
+            >
+              {p.name}: {p.value}
+            </p>
+          ))}
+        </div>
+      );
+    }
+
+    return null;
+  };
 
   const trendData = React.useMemo(() => {
     const days: Record<
@@ -148,6 +200,7 @@ const Dashboard: React.FC = () => {
         </span>
       ),
     },
+
     {
       key: 'vendor_name',
       header: 'Vendor',
@@ -157,6 +210,7 @@ const Dashboard: React.FC = () => {
         </span>
       ),
     },
+
     {
       key: 'total_amount',
       header: 'Amount',
@@ -166,28 +220,33 @@ const Dashboard: React.FC = () => {
         </span>
       ),
     },
+
     {
       key: 'status',
       header: 'Status',
       render: (row) => (
-        <StatusBadge status={row.status} size="sm" />
+        <StatusBadge
+          status={row.status}
+          size="sm"
+        />
       ),
     },
+
     {
       key: 'created_at',
       header: 'Created',
       render: (row) => (
         <span className="text-slate-500 text-xs">
-          {new Date(row.created_at).toLocaleDateString(
-            'en-IN',
-            {
-              day: '2-digit',
-              month: 'short',
-            }
-          )}
+          {new Date(
+            row.created_at
+          ).toLocaleDateString('en-IN', {
+            day: '2-digit',
+            month: 'short',
+          })}
         </span>
       ),
     },
+
     {
       key: 'action',
       header: '',
@@ -196,7 +255,9 @@ const Dashboard: React.FC = () => {
           className="btn-ghost p-1.5"
           onClick={(e) => {
             e.stopPropagation();
-            navigate(`/invoices/${row.invoice_id}`);
+            navigate(
+              `/invoices/${row.invoice_id}`
+            );
           }}
         >
           <Eye size={14} />
@@ -214,7 +275,8 @@ const Dashboard: React.FC = () => {
         style={{
           background:
             'linear-gradient(135deg, rgba(139,92,246,0.15) 0%, rgba(109,40,217,0.08) 50%, rgba(255,255,255,0.02) 100%)',
-          borderColor: 'rgba(139,92,246,0.2)',
+          borderColor:
+            'rgba(139,92,246,0.2)',
         }}
       >
         <div
@@ -233,21 +295,29 @@ const Dashboard: React.FC = () => {
           <h2 className="text-4xl font-bold text-white tracking-tight">
             {isLoading
               ? '₹—'
-              : fmt(stats?.total_amount_audited ?? 0)}
+              : fmt(
+                  stats?.total_amount_audited ?? 0
+                )}
           </h2>
 
           <p className="text-sm text-slate-400 mt-1">
-            Across {stats?.total_invoices ?? 0} invoice audits
+            Across{' '}
+            {stats?.total_invoices ?? 0}{' '}
+            invoice audits
           </p>
         </div>
       </div>
 
-      {/* Stat cards */}
+      {/* Stats */}
       <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
 
         <StatCard
           title="Total Vendors"
-          value={isLoading ? '—' : vendorCount}
+          value={
+            isLoading
+              ? '—'
+              : vendorCount
+          }
           icon={<Users size={18} />}
           accent="violet"
           subtitle="Registered in system"
@@ -270,7 +340,9 @@ const Dashboard: React.FC = () => {
           value={
             isLoading
               ? '₹—'
-              : fmt(stats?.total_amount_audited ?? 0)
+              : fmt(
+                  stats?.total_amount_audited ?? 0
+                )
           }
           icon={<DollarSign size={18} />}
           accent="violet"
@@ -295,7 +367,7 @@ const Dashboard: React.FC = () => {
       {/* Charts */}
       <div className="grid grid-cols-1 xl:grid-cols-5 gap-4">
 
-        {/* Line chart */}
+        {/* Audit Volume */}
         <div className="glass-card p-5 xl:col-span-3">
 
           <div className="flex items-center justify-between mb-4">
@@ -308,7 +380,10 @@ const Dashboard: React.FC = () => {
             </span>
           </div>
 
-          <ResponsiveContainer width="100%" height={180}>
+          <ResponsiveContainer
+            width="100%"
+            height={180}
+          >
             <LineChart data={trendData}>
 
               <XAxis
@@ -331,7 +406,9 @@ const Dashboard: React.FC = () => {
                 allowDecimals={false}
               />
 
-              <Tooltip />
+              <Tooltip
+                content={customTooltip}
+              />
 
               <Line
                 type="monotone"
@@ -354,9 +431,10 @@ const Dashboard: React.FC = () => {
 
             </LineChart>
           </ResponsiveContainer>
+
         </div>
 
-        {/* Donut */}
+        {/* Status Breakdown */}
         <div className="glass-card p-5 xl:col-span-2">
 
           <h3 className="text-sm font-semibold text-white mb-4">
@@ -379,12 +457,16 @@ const Dashboard: React.FC = () => {
                   paddingAngle={3}
                   dataKey="value"
                 >
-                  {donutData.map((entry, index) => (
-                    <Cell
-                      key={`${entry.name}-${index}`}
-                      fill={DONUT_COLORS[index]}
-                    />
-                  ))}
+                  {donutData.map(
+                    (entry, index) => (
+                      <Cell
+                        key={`${entry.name}-${index}`}
+                        fill={
+                          DONUT_COLORS[index]
+                        }
+                      />
+                    )
+                  )}
                 </Pie>
 
                 <Legend
@@ -402,7 +484,9 @@ const Dashboard: React.FC = () => {
                   )}
                 />
 
-                <Tooltip />
+                <Tooltip
+                  content={customTooltip}
+                />
 
               </PieChart>
             </ResponsiveContainer>
@@ -415,7 +499,7 @@ const Dashboard: React.FC = () => {
         </div>
       </div>
 
-      {/* Recent flags + table */}
+      {/* Recent Flags + Invoices */}
       <div className="grid grid-cols-1 xl:grid-cols-4 gap-4">
 
         {/* Recent Flags */}
@@ -450,7 +534,10 @@ const Dashboard: React.FC = () => {
                   }
                 >
                   <p className="text-xs font-mono text-red-300 truncate">
-                    {inv.invoice_id.slice(0, 16)}
+                    {inv.invoice_id.slice(
+                      0,
+                      16
+                    )}
                   </p>
 
                   <p className="text-xs text-slate-400 mt-0.5 truncate">
@@ -468,7 +555,7 @@ const Dashboard: React.FC = () => {
           </div>
         </div>
 
-        {/* Recent invoices */}
+        {/* Recent Invoices */}
         <div className="glass-card xl:col-span-3">
 
           <div className="flex items-center justify-between px-5 pt-4 pb-3 border-b border-white/[0.06]">
@@ -503,7 +590,9 @@ const Dashboard: React.FC = () => {
             data={invoices}
             isLoading={isLoading}
             emptyMessage="No invoices yet — upload one to get started."
-            keyExtractor={(row) => row.invoice_id}
+            keyExtractor={(row) =>
+              row.invoice_id
+            }
             onRowClick={(row) =>
               navigate(
                 `/invoices/${row.invoice_id}`
